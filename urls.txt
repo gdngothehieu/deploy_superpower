@@ -1,0 +1,2 @@
+GIT public URL: https://github.com/gdngothehieu/deploy_superpower.git
+S3 Bucket URL: http://udapeople-8878388.s3-website-us-east-1.amazonaws.com/
