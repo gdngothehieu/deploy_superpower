@@ -12,6 +12,8 @@ commands:
             aws cloudformation delete-stack --stack-name backend-stack-${CIRCLE_WORKFLOW_ID:0:7}
             aws s3 rm s3://udapeople-${CIRCLE_WORKFLOW_ID:0:7} --recursive
             aws cloudformation delete-stack --stack-name frontend-stack-${CIRCLE_WORKFLOW_ID:0:7}
+            echo 'Finished destroying the stacks'
+
   revert-migrations:
     description: Revert the last migration if successfully run in the current workflow.
     steps:
@@ -28,6 +30,7 @@ commands:
               npm install
               npm run migrations:revert
             fi
+            echo 'Finished reverting the last migration'
 
 jobs:
   build-frontend:
@@ -279,33 +282,42 @@ jobs:
       - image: python:3.7-alpine3.11
     steps:
       - checkout
+      - attach_workspace:
+          at: ~/
       - run:
           name: Install dependencies
           command: |
-            apk add --update curl nodejs npm
+            apk add --update curl
             pip install awscli
+
       - run:
-          name: Get backend url and Backend smoke test
+          name: Backend smoke test.
           command: |
-            BACKEND_IP=$(aws ec2 describe-instances \
-              --filters "Name=tag:project,Values=udacity-backend-${CIRCLE_WORKFLOW_ID:0:7}" \
-              --query 'Reservations[*].Instances[*].PublicIpAddress' \
-              --output text)
-            echo "${BACKEND_IP}"
-            curl "http://${BACKEND_IP}:3030/api/status"
+            export BACKEND_IP=`cat .circleci/output/backend_api_ip.txt`
+            export API_URL="http://${BACKEND_IP}:3030"
+            echo $API_URL
+            if curl -s $API_URL/api/status | grep "ok"
+            then
+              return 0
+            else
+              return 1
+            fi
       - run:
           name: Frontend smoke test.
           command: |
-            URL="http://udapeople-${CIRCLE_WORKFLOW_ID:0:7}.s3.us-east-2.amazonaws.com/index.html"
-            curl -s ${URL} | grep "Welcome"
-            #if curl -s ${URL} | grep "Welcome"
-            #then
-            #  return 1
-            #else
-            #  return 0
-            #fi
-      - destroy-environment
-      - revert-migrations
+            URL="http://udapeople-${CIRCLE_WORKFLOW_ID:0:7}.s3-website-us-west-2.amazonaws.com"
+            if curl -s ${URL} | grep "Welcome"
+            then
+              return 0
+            else
+              return 1
+            fi
+      - destroy-environment:
+          workflowId: "${CIRCLE_WORKFLOW_ID:0:7}"
+      - slack/notify:
+          event: fail
+          template: basic_fail_1
+      # Here's where you will add some code to rollback on failure
 
   cloudfront-update:
     docker:
