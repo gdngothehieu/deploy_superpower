@@ -136,7 +136,6 @@ jobs:
       - run:
           name: Ensure back-end infrastructure exists
           command: |
-
             echo 'Ensuring backend infrastructure exists'
             aws cloudformation deploy \
               --template-file .circleci/files/backend.yml \
@@ -272,6 +271,7 @@ jobs:
       - run:
           name: Deploy backend
           command: |
+            echo 'Deploying Backend'
             cd ~/project/.circleci/ansible
             ansible-playbook -i inventory.txt deploy-backend.yml
       - destroy-environment
@@ -282,42 +282,36 @@ jobs:
       - image: python:3.7-alpine3.11
     steps:
       - checkout
-      - attach_workspace:
-          at: ~/
       - run:
           name: Install dependencies
           command: |
-            apk add --update curl
+            apk add --update curl nodejs npm
             pip install awscli
-
       - run:
-          name: Backend smoke test.
+          name: Backend smoke test
           command: |
-            export BACKEND_IP=`cat .circleci/output/backend_api_ip.txt`
-            export API_URL="http://${BACKEND_IP}:3030"
-            echo $API_URL
-            if curl -s $API_URL/api/status | grep "ok"
-            then
-              return 0
-            else
-              return 1
-            fi
+            echo 'Smoke testing backend'
+            BACKEND_IP=$(aws ec2 describe-instances \
+              --filters "Name=tag:project,Values=udacity-backend-${CIRCLE_WORKFLOW_ID:0:7}" \
+              --query 'Reservations[*].Instances[*].PublicIpAddress' \
+              --output text)
+            echo "${BACKEND_IP}"
+            curl "http://${BACKEND_IP}:3030/api/status"
       - run:
           name: Frontend smoke test.
           command: |
-            URL="http://udapeople-${CIRCLE_WORKFLOW_ID:0:7}.s3-website-us-west-2.amazonaws.com"
-            if curl -s ${URL} | grep "Welcome"
-            then
-              return 0
-            else
-              return 1
-            fi
-      - destroy-environment:
-          workflowId: "${CIRCLE_WORKFLOW_ID:0:7}"
-      - slack/notify:
-          event: fail
-          template: basic_fail_1
-      # Here's where you will add some code to rollback on failure
+            echo 'Smoke testing frontend'
+            URL="http://udapeople-${CIRCLE_WORKFLOW_ID:0:7}.s3.us-east-2.amazonaws.com/index.html"
+            curl -s ${URL} | grep "Welcome"
+            #if curl -s ${URL} | grep "Welcome"
+            #then
+            #  return 1
+            #else
+            #  return 0
+            #fi
+      - destroy-environment
+      - revert-migrations
+
   cloudfront-update:
     docker:
       - image: amazon/aws-cli
@@ -330,6 +324,7 @@ jobs:
       - run:
           name: Update cloudfront distribution
           command: |
+            echo 'Updating cloudfront distribution'
             cd ~/project/.circleci/files
             OldWorkflowID=$(aws cloudformation \
               list-exports --query "Exports[?Name==\`WorkflowID\`].Value" \
@@ -349,8 +344,9 @@ jobs:
     steps:
       - checkout
       - run:
-          name: Remove old stacks and files
+          name: Get old stack workflow id
           command: |
+            echo 'Getting oldstack workflow id'
             export OldWorkflowID=$(curl -H "token: bccde535-099e-43c3-91d8-42e8b76b7f3e" --request GET https://api.memstash.io/values/WorkflowID)
             export STACKS=($(aws cloudformation list-stacks --query "StackSummaries[*].StackName" \
               --stack-status-filter CREATE_COMPLETE --no-paginate --output text)) 
